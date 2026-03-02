@@ -4,9 +4,9 @@ from pathlib import Path
 import json
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)                                                                   # разрешаем доступ с фронта
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR.joinpath('..', 'data', 'projects').resolve()
+DATA_DIR = BASE_DIR.joinpath('..', 'data', 'projects').resolve()            # путь к данным можно вынести в .env потом
 print("DATA_DIR =", DATA_DIR)
 
 def read_json_file(path: Path):
@@ -62,13 +62,15 @@ def get_all_projects_minimal():
             results.append(mini)
     return results
 
-def find_project_by_id(project_id: str):
+def find_project_by_id(project_id: str):                                    # при росте числа файлов перейти на нормальную бд
     for d in iter_project_dirs():
         full = load_full_project(d)
         if isinstance(full, dict) and full.get('id') == project_id:
             return full
     return None
 
+
+# API Endpoints
 @app.route('/api/ping', methods=['GET'])
 def ping():
     return jsonify({"status": "success", "message": "Backend is online!", "data": None})
