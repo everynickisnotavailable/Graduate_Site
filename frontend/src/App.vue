@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchProjectById, fetchProjects } from './apiClient'
 
 const projects = ref([])
@@ -9,12 +9,13 @@ const errorMessage = ref('')
 const mapError = ref('')
 
 const mapContainerRef = ref(null)
-let mapInstance = null
-let markersLayer = null
-let ymaps3Api = null
 
 const YMAPS_SCRIPT_ID = 'yandex-maps-v3-script'
 const CITY_CENTER = [30.1282, 59.5684] // [lon, lat], Гатчина
+
+let mapInstance = null
+let ymaps3Entities = null
+let markerEntities = []
 
 function hasCoordinates(project) {
   return Number.isFinite(project?.location?.lat) && Number.isFinite(project?.location?.lon)
@@ -78,23 +79,18 @@ async function initMap() {
     const ymaps3 = await loadYandexMapsScript(apiKey)
     await ymaps3.ready
 
-    const { YMap, YMapCollection, YMapDefaultSchemeLayer, YMapDefaultFeaturesLayer, YMapMarker } = ymaps3
+    const { YMap, YMapMarker, YMapDefaultSchemeLayer, YMapDefaultFeaturesLayer } = ymaps3
+    ymaps3Entities = { YMapMarker }
 
-    ymaps3Api = { YMapMarker }
-
-    mapInstance = new YMap(
-      mapContainerRef.value,
-      {
-        location: {
-          center: CITY_CENTER,
-          zoom: 11,
-        },
+    mapInstance = new YMap(mapContainerRef.value, {
+      location: {
+        center: CITY_CENTER,
+        zoom: 11,
       },
-      [new YMapDefaultSchemeLayer(), new YMapDefaultFeaturesLayer()],
-    )
+    })
 
-    markersLayer = new YMapCollection({})
-    mapInstance.addChild(markersLayer)
+    mapInstance.addChild(new YMapDefaultSchemeLayer())
+    mapInstance.addChild(new YMapDefaultFeaturesLayer())
 
     renderMarkers()
   } catch (error) {
@@ -104,39 +100,46 @@ async function initMap() {
 }
 
 function clearMarkers() {
-  if (!markersLayer) {
+  if (!mapInstance || markerEntities.length === 0) {
     return
   }
 
-  markersLayer.update({ children: [] })
+  markerEntities.forEach((marker) => {
+    mapInstance.removeChild(marker)
+  })
+  markerEntities = []
+}
+
+function buildMarkerElement(project, isSelected) {
+  const markerElement = document.createElement('button')
+  markerElement.type = 'button'
+  markerElement.className = `project-marker ${isSelected ? 'project-marker--active' : ''}`
+  markerElement.textContent = project.name?.[0] || '•'
+  markerElement.title = project.name || 'Проект'
+  markerElement.onclick = () => {
+    handleMarkerClick(project)
+  }
+  return markerElement
 }
 
 function renderMarkers() {
-  if (!mapInstance || !markersLayer || !ymaps3Api) {
+  if (!mapInstance || !ymaps3Entities) {
     return
   }
 
   clearMarkers()
 
-  const children = projects.value
-    .filter(hasCoordinates)
-    .map((project) => {
-      const coords = getProjectCoords(project)
-      const isSelected = selectedProject.value?.id === project.id
+  const markers = projects.value.filter(hasCoordinates).map((project) => {
+    const isSelected = selectedProject.value?.id === project.id
 
-      const markerElement = document.createElement('button')
-      markerElement.type = 'button'
-      markerElement.className = `project-marker ${isSelected ? 'project-marker--active' : ''}`
-      markerElement.textContent = project.name?.[0] || '•'
-      markerElement.title = project.name || 'Проект'
-      markerElement.onclick = () => {
-        handleMarkerClick(project)
-      }
+    return new ymaps3Entities.YMapMarker(
+      { coordinates: getProjectCoords(project) },
+      buildMarkerElement(project, isSelected),
+    )
+  })
 
-      return new ymaps3Api.YMapMarker({ coordinates: coords }, markerElement)
-    })
-
-  markersLayer.update({ children })
+  markers.forEach((marker) => mapInstance.addChild(marker))
+  markerEntities = markers
 }
 
 async function handleMarkerClick(project) {
@@ -148,8 +151,6 @@ async function handleMarkerClick(project) {
   } catch (error) {
     console.error('Не удалось загрузить детали проекта:', error)
   }
-
-  renderMarkers()
 }
 
 async function loadProjects() {
@@ -172,12 +173,18 @@ watch(projects, () => {
   renderMarkers()
 })
 
+watch(selectedProject, () => {
+  renderMarkers()
+})
+
 onMounted(async () => {
   await loadProjects()
   await initMap()
 })
 
 onBeforeUnmount(() => {
+  clearMarkers()
+
   if (mapInstance) {
     mapInstance.destroy()
     mapInstance = null
