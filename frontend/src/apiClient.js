@@ -9,3 +9,8 @@ export async function fetchProjects() {
   const response = await apiClient.get('/projects')
   return response.data
 }
+
+export async function fetchProjectById(projectId) {
+  const response = await apiClient.get(`/projects/${projectId}`)
+  return response.data
+}
